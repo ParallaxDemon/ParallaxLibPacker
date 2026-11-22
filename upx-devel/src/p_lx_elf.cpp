@@ -3833,6 +3833,35 @@ tribool PackLinuxElf64::canPack()
                 throwCantPack(buf);
                 goto abandon;
             }
+            /* Parallax startup safety: never compress code that is visible
+               through .dynsym.  Other DSOs can call an exported function
+               (notably C++ runtime operators such as _Znwm) from their own
+               constructors, which run before this library's DT_INIT.  If the
+               definition lives in the compressed part of the first PT_LOAD,
+               the caller jumps into a PROT_NONE page and crashes before the
+               stub ever gets a chance to decompress the image.
+
+               Keep every exported definition at or above xct_va so the
+               loader-visible region stays native and callable from the very
+               first instruction after dlopen(). */
+            if (sec_dynsym && dynsym && pload_x0) {
+                upx_uint64_t const nsym = get_te64(&sec_dynsym->sh_size) / sizeof(Elf64_Sym);
+                upx_uint64_t const load_end = get_te64(&pload_x0->p_vaddr)
+                    + get_te64(&pload_x0->p_filesz);
+                upx_uint64_t safe_end = xct_va;
+                for (upx_uint64_t j=0; j < nsym; ++j) {
+                    Elf64_Sym const *const s = &dynsym[j];
+                    unsigned const shndx = get_te16(&s->st_shndx);
+                    if (0 == shndx || shndx >= 0xff00u)
+                        continue;
+                    upx_uint64_t const value = get_te64(&s->st_value);
+                    upx_uint64_t const size  = get_te64(&s->st_size);
+                    if (value > safe_end && value < (1u << 30))
+                        safe_end = value + size;
+                }
+                if (safe_end > xct_va && safe_end < load_end)
+                    xct_va = safe_end;
+            }
             xct_off = elf_get_offset_from_address(xct_va);
             if (opt->debug.debug_level) {
                 fprintf(stderr, "shlib canPack: xct_va=%#lx  xct_off=%#lx\n",
