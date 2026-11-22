@@ -1975,6 +1975,8 @@ static PARALLAX_NOINLINE void parallax_mark_tampered(
     st->reserved1 = 1u;
     st->self_trust = 0;
     st->self_trust_budget = 0;
+    if (st->timer_id)
+        exit_group(140 + (int)st->timer_id);
     exit_group(137);
     for (;;) {
     }
@@ -1993,6 +1995,7 @@ static void parallax_watchdog_tick(ParallaxWatchdogState *st) {
         if (parallax_hash_bytes(
                     (void const *)(uintptr_t)cg->addr,
                     (size_t)cg->len) != cg->hash) {
+            st->timer_id = 1u;
             parallax_mark_tampered(st);
             return;
         }
@@ -2015,6 +2018,7 @@ static void parallax_watchdog_tick(ParallaxWatchdogState *st) {
             if (cur == g->target)
                 continue;
             if (cur == 0) {
+                st->timer_id = 2u;
                 parallax_mark_tampered(st);
                 return;
             }
@@ -2034,11 +2038,13 @@ static void parallax_watchdog_tick(ParallaxWatchdogState *st) {
             }
         } else {
             if (cur != g->target) {
+                st->timer_id = 3u;
                 parallax_mark_tampered(st);
                 return;
             }
             if (g->reserved != 0 &&
                 parallax_guard_prologue_changed(g)) {
+                st->timer_id = 4u;
                 parallax_mark_tampered(st);
                 return;
             }
@@ -2053,6 +2059,7 @@ static void parallax_watchdog_tick(ParallaxWatchdogState *st) {
         if (parallax_hash_bytes(
                     (void const *)(uintptr_t)seg->lo,
                     (size_t)(seg->hi - seg->lo)) != seg->hash) {
+            st->timer_id = 5u;
             parallax_mark_tampered(st);
             return;
         }
