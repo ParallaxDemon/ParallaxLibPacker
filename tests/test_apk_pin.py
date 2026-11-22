@@ -54,6 +54,7 @@ int main(int argc,char **argv) {
     parallax_pin_sha_update(&sha,(const unsigned char *)"abc",3);
     parallax_pin_sha_final(&sha,digest);
     if(memcmp(sha_abc,digest,32)!=0)return 15;
+    if(argc==2)return parallax_pin_installed_path(argv[1]) ? 0 : 19;
     if(argc!=3)return 16;
     if(strlen(argv[2])!=64)return 17;
     for(i=0;i<32;i++){
@@ -128,6 +129,26 @@ class ApkPinTests(unittest.TestCase):
         digest = hashlib.sha256(cert).digest()
         self.assertNotEqual(self.check(synthetic_apk(cert)[:-30], digest), 0)
         self.assertNotEqual(self.check(b"PK\x05\x06" + b"\0" * 18, digest), 0)
+
+    def test_only_installed_apk_paths_can_supply_signer(self):
+        accepted = (
+            "/data/app/~~random/com.example-123/base.apk",
+            "/data/app/com.example-1/lib/arm64/libprotected.so",
+            "/mnt/expand/1234-5678/app/com.example-1/base.apk",
+        )
+        rejected = (
+            "/data/local/tmp/lib/arm64/libprotected.so",
+            "/data/local/tmp/base.apk",
+            "/sdcard/Download/base.apk",
+            "/mnt/expand/1234-5678/base.apk",
+            "/data/application/com.example/base.apk",
+        )
+        for path in accepted:
+            with self.subTest(path=path):
+                self.assertEqual(subprocess.run([str(self.binary), path], check=False).returncode, 0)
+        for path in rejected:
+            with self.subTest(path=path):
+                self.assertNotEqual(subprocess.run([str(self.binary), path], check=False).returncode, 0)
 
 
 if __name__ == "__main__":
