@@ -1,0 +1,154 @@
+name: Build Android ARM64 packer
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, android-native]
+    paths:
+      - "upx-devel/**"
+      - "scripts/**"
+      - ".github/workflows/build-android.yml"
+  pull_request:
+    paths:
+      - "upx-devel/**"
+      - "scripts/**"
+      - "tests/**"
+      - ".github/workflows/build-android.yml"
+
+permissions:
+  contents: write
+
+env:
+  SOURCE_DIR: upx-devel
+
+jobs:
+  build-android-arm64:
+    name: Android ARM64 (Termux native)
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential cmake ninja-build git file curl xz-utils perl python3 libmpfr6
+
+      - name: Locate or install Android NDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          NDK_DIR=$(find "$SDK/ndk" -maxdepth 1 -mindepth 1 -type d 2>/dev/null | sort -V | tail -1 || true)
+          if [ -z "$NDK_DIR" ]; then
+            SDKMANAGER="$SDK/cmdline-tools/latest/bin/sdkmanager"
+            yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+            "$SDKMANAGER" "ndk;27.0.12077973" >/dev/null
+            NDK_DIR="$SDK/ndk/27.0.12077973"
+          fi
+          test -f "$NDK_DIR/build/cmake/android.toolchain.cmake"
+          echo "NDK_DIR=$NDK_DIR" >> "$GITHUB_ENV"
+
+      - name: Download required vendor dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$SOURCE_DIR/vendor"
+          clone_vendor() {
+            local repo="$1" dst="$2" sha="$3"
+            local dir="$SOURCE_DIR/vendor/$dst"
+            rm -rf "$dir"
+            git init -q "$dir"
+            git -C "$dir" remote add origin "https://github.com/upx/$repo.git"
+            git -C "$dir" fetch -q --depth 1 origin "$sha"
+            git -C "$dir" checkout -q --detach FETCH_HEAD
+            test "$(git -C "$dir" rev-parse HEAD)" = "$sha"
+          }
+          clone_vendor upx-vendor-doctest doctest 835aaee34666173532e98437b057f37b385076c9
+          clone_vendor upx-vendor-lzma-sdk lzma-sdk f9637f9f563d17b6ecf33ae2212dcd44866bfb25
+          clone_vendor upx-vendor-ucl ucl a60611d342b0b7d2924c495ebaa1910e4c3c3fe6
+          clone_vendor upx-vendor-valgrind valgrind b054e44ea1b6d630853ed74d33e0934ef4642efc
+          clone_vendor upx-vendor-zlib zlib 0a41a7d0a974d0b43afe4afe4b8025c8f144474e
+
+      - name: Verify Android ARM64 crash regressions
+        shell: bash
+        run: python3 -m unittest -v tests.test_android_startup_regression
+
+      - name: Test native APK signing-certificate pinning parser
+        shell: bash
+        run: python3 -m unittest -v tests.test_apk_pin
+
+      - name: Regenerate hardened ARM64 ELF-SO runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/rebuild-pvm4-arm64-stub.sh "$SOURCE_DIR"
+
+      - name: Configure Android ARM64 build
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake \
+            -S "$SOURCE_DIR" \
+            -B build-android \
+            -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="$NDK_DIR/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_PLATFORM=android-24 \
+            -DANDROID_STL=c++_static \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=OFF \
+            -DUPX_CONFIG_DISABLE_GITREV=ON \
+            -DUPX_CONFIG_DISABLE_SANITIZE=ON \
+            -DUPX_CONFIG_DISABLE_WERROR=ON \
+            -DUPX_CONFIG_DISABLE_WSTRICT=ON \
+            -DUPX_CONFIG_CMAKE_DISABLE_TEST=ON
+
+      - name: Build Android ARM64
+        run: cmake --build build-android --config Release --parallel
+
+      - name: Validate Android ARM64 image
+        shell: bash
+        run: |
+          set -euo pipefail
+          RAW="build-android/upx"
+          NDK_BIN="$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          file "$RAW"
+          "$NDK_BIN/llvm-readelf" -h "$RAW" | grep -E 'Type:|Machine:'
+          "$NDK_BIN/llvm-readelf" -h "$RAW" | grep -q 'AArch64'
+          "$NDK_BIN/llvm-readelf" -h "$RAW" | grep -q 'DYN'
+          # On Android AArch64, PT_GNU_STACK may be absent. An empty grep
+          # must not fail this validation job under 'set -euo pipefail'.
+          "$NDK_BIN/llvm-readelf" -lW "$RAW" > /tmp/android-packer-program-headers.txt
+          if grep -E 'GNU_STACK.*RWE|LOAD.*RWE' /tmp/android-packer-program-headers.txt; then
+            echo "ERROR: executable stack or RWX load segment detected"
+            exit 1
+          fi
+          "$NDK_BIN/llvm-readelf" -d "$RAW" | grep NEEDED
+
+      - name: Prepare Android ARM64 binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp build-android/upx dist/parallax_android_arm64
+          chmod +x dist/parallax_android_arm64
+          NDK_BIN="$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          "$NDK_BIN/llvm-strip" --strip-all dist/parallax_android_arm64
+          file dist/parallax_android_arm64
+          (cd dist && sha256sum parallax_android_arm64 > parallax_android_arm64.sha256)
+          (cd dist && sha256sum -c parallax_android_arm64.sha256)
+
+      - name: Publish Android ARM64 binary to GitHub Release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG=parallax-ultra-v3-latest
+          gh release view "$TAG" >/dev/null 2>&1 || \
+            gh release create "$TAG" --title "ParallaxLibPacker ultra v3" \
+              --notes "Automated Android ARM64 build from ${GITHUB_SHA}" || true
+          gh release upload "$TAG" \
+            dist/parallax_android_arm64 dist/parallax_android_arm64.sha256 --clobber
