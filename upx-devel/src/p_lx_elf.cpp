@@ -3856,9 +3856,14 @@ tribool PackLinuxElf64::canPack()
                         continue;
                     upx_uint64_t const value = get_te64(&s->st_value);
                     upx_uint64_t const size  = get_te64(&s->st_size);
-                    if (value > safe_end && value < (1u << 30))
+                    /* Only code in the first PT_LOAD can be reached before
+                       the stub runs.  Definitions in later PT_LOADs are
+                       already left untouched by the compression scheme. */
+                    if (value > safe_end && value < load_end)
                         safe_end = value + size;
                 }
+                if (safe_end > load_end)
+                    safe_end = load_end;
                 if (safe_end > xct_va && safe_end < load_end)
                     xct_va = safe_end;
             }
