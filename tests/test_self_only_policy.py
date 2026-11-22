@@ -59,6 +59,24 @@ class SelfOnlyPolicyTest(unittest.TestCase):
         self.assertIn("st->n_segments", body)
         self.assertIn("st->n_code_guards", body)
 
+    def test_loader_code_is_checked_during_self_trust(self) -> None:
+        body = block(
+            self.source,
+            "static void parallax_watchdog_tick(",
+            "\nstatic void parallax_watchdog_handler",
+        )
+        self.assertLess(body.index("st->n_code_guards"), body.index("if (st->self_trust)"))
+        self.assertNotIn("parallax_self_trust_refresh(st);", body)
+
+    def test_unresolved_imports_are_registered(self) -> None:
+        body = block(
+            self.source,
+            "static int parallax_guard_rela_table(",
+            "\nstatic int parallax_install_guards(",
+        )
+        zero = block(body, "if (target == 0) {", "\n        }")
+        self.assertIn("parallax_guard_add(st, &guard)", zero)
+
     def test_existing_trampoline_becomes_slot_only_baseline(self) -> None:
         body = block(
             self.source,
