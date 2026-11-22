@@ -253,6 +253,25 @@ finish:
     close(fd);
     return good;
 }
+/* Only an installed package's APK may provide the signer identity. A copied
+ * signed base.apk beside an arbitrary extracted .so is not an identity check
+ * on the app actually loading the library. Android 7+ package paths live in
+ * /data/app or under an adopted-storage volume's /mnt/expand/.../app.
+ */
+static int parallax_pin_installed_path(char const *path) {
+    char const *p=path;
+    char const data[]="/data/app/";
+    char const expanded[]="/mnt/expand/";
+    unsigned i;
+    for(i=0;data[i];++i)if(p[i]!=data[i])break;
+    if(!data[i])return p[i]!='\0';
+    for(i=0;expanded[i];++i)if(p[i]!=expanded[i])return 0;
+    p+=i;
+    if(!*p || *p=='/')return 0;
+    while(*p && *p!='/')++p;
+    return p[0]=='/' && p[1]=='a' && p[2]=='p' && p[3]=='p' &&
+           p[4]=='/' && p[5]!='\0';
+}
 /* Parse the library's own file mapping, not another module's name. */
 static int parallax_pin_find_apk(char out[PARALLAX_PIN_MAX_APK_PATH],
                                 Elf64_Addr lib_addr) {
@@ -281,15 +300,18 @@ static int parallax_pin_find_apk(char out[PARALLAX_PIN_MAX_APK_PATH],
                     }
                     out[slashes]=0;
                     if(slashes<9u)break;
+                    if(!parallax_pin_installed_path(out))break;
                     /* Already mapped directly from an uncompressed split/base APK. */
                     if(slashes>=4u&&out[slashes-4]=='.'&&out[slashes-3]=='a'&&
                        out[slashes-2]=='p'&&out[slashes-1]=='k'){
                         close(fd);return 1;
                     }
                     /* Extracted native lib under /data/app/.../lib/arm64/. */
-                    for(k=0;k+5u<slashes;k++) {
+                    for(k=0;k+10u<slashes;k++) {
                         if(out[k]=='/'&&out[k+1]=='l'&&out[k+2]=='i'&&
-                           out[k+3]=='b'&&out[k+4]=='/'){
+                           out[k+3]=='b'&&out[k+4]=='/'&&
+                           out[k+5]=='a'&&out[k+6]=='r'&&out[k+7]=='m'&&
+                           out[k+8]=='6'&&out[k+9]=='4'&&out[k+10]=='/'){
                             start=k+1u;break;
                         }
                     }
