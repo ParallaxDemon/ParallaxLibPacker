@@ -14,6 +14,7 @@ import json
 import os
 from pathlib import Path
 import secrets
+import shutil
 import struct
 import subprocess
 import sys
@@ -161,10 +162,26 @@ def publish_new_file(source: Path, destination: Path) -> None:
         if os.name == "nt":
             # Windows rename fails rather than replacing an existing destination.
             os.rename(source, destination)
-        else:
+        elif hasattr(os, "link"):
             # POSIX rename replaces an existing path, so use same-filesystem
             # hard-link publication with O_EXCL-like no-clobber semantics.
             os.link(source, destination, follow_symlinks=False)
+            source.unlink()
+        else:
+            # Android/Termux exports may expose no os.link at all. Fall back to
+            # an exclusive create plus copy so the no-clobber guarantee holds.
+            fd = os.open(destination, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            try:
+                with source.open("rb") as src, os.fdopen(fd, "wb") as dst:
+                    shutil.copyfileobj(src, dst)
+                    dst.flush()
+                    os.fsync(dst.fileno())
+            except BaseException:
+                try:
+                    destination.unlink()
+                except FileNotFoundError:
+                    pass
+                raise
             source.unlink()
     except FileExistsError as exc:
         raise UltraError(f"destination already exists: {destination}") from exc
