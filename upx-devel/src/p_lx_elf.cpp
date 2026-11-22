@@ -3852,7 +3852,15 @@ tribool PackLinuxElf64::canPack()
                 for (upx_uint64_t j=0; j < nsym; ++j) {
                     Elf64_Sym const *const s = &dynsym[j];
                     unsigned const shndx = get_te16(&s->st_shndx);
+                    unsigned const info  = (unsigned)s->st_info;
                     if (0 == shndx || shndx >= 0xff00u)
+                        continue;
+                    /* Only exported code can be preempted and called by
+                       another DSO before this library's DT_INIT.  Data
+                       symbols and local functions do not need this area. */
+                    if ((info & 0x0fu) != 2u && (info & 0x0fu) != 10u)
+                        continue;
+                    if (0 == (info >> 4))
                         continue;
                     upx_uint64_t const value = get_te64(&s->st_value);
                     upx_uint64_t const size  = get_te64(&s->st_size);

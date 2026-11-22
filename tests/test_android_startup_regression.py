@@ -64,6 +64,7 @@ class AndroidStartupRegressionTests(unittest.TestCase):
         """
         self.assertIn("Parallax startup safety: never compress code", self.elf64)
         self.assertIn("sec_dynsym && dynsym && pload_x0", self.elf64)
+        self.assertIn("Only exported code can be preempted", self.elf64)
         self.assertIn("if (value > safe_end && value < load_end)", self.elf64)
         self.assertIn("if (safe_end > xct_va && safe_end < load_end)", self.elf64)
 
