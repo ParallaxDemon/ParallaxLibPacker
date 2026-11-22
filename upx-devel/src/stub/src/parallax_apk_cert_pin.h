@@ -334,7 +334,10 @@ static int parallax_pin_find_apk(char out[PARALLAX_PIN_MAX_APK_PATH],
 static int parallax_pin_verify_apk(unsigned char const expected[32],
                                   char const *va_load){
     char path[PARALLAX_PIN_MAX_APK_PATH];
+    int r;
     if(!parallax_pin_find_apk(path,(Elf64_Addr)(uintptr_t)va_load))return 0;
-    return parallax_pin_apk_file(path,expected);
+    r = parallax_pin_apk_file(path,expected);
+    __asm__ volatile("" ::: "memory");
+    return r;
 }
 #endif /* __aarch64__ */
