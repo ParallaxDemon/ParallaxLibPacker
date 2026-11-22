@@ -1985,8 +1985,20 @@ static void parallax_watchdog_tick(ParallaxWatchdogState *st) {
     if (!st || st->magic != PARALLAX_WD_MAGIC || st->reserved1 != 0)
         return;
 
+    /* The self-trust window authorizes changes to the protected module, not
+       to the independent loader. Check its frozen code on every tick, even
+       while constructors/JNI hooks are being adopted. */
+    for (i = 0; i < st->n_code_guards; ++i) {
+        ParallaxCodeGuard64 *cg = &st->code_guards[i];
+        if (parallax_hash_bytes(
+                    (void const *)(uintptr_t)cg->addr,
+                    (size_t)cg->len) != cg->hash) {
+            parallax_mark_tampered(st);
+            return;
+        }
+    }
+
     if (st->self_trust) {
-        parallax_self_trust_refresh(st);
         if (st->self_trust_budget != 0 &&
             --st->self_trust_budget == 0)
             parallax_self_trust_seal(st);
@@ -2046,17 +2058,6 @@ static void parallax_watchdog_tick(ParallaxWatchdogState *st) {
         }
     }
 
-    /* Independent loader/runtime checkpoints prevent a single branch patch
-       from disabling every self-integrity path. */
-    for (i = 0; i < st->n_code_guards; ++i) {
-        ParallaxCodeGuard64 *cg = &st->code_guards[i];
-        if (parallax_hash_bytes(
-                    (void const *)(uintptr_t)cg->addr,
-                    (size_t)cg->len) != cg->hash) {
-            parallax_mark_tampered(st);
-            return;
-        }
-    }
 }
 
 static void parallax_watchdog_handler(int sig, void *info, void *context) {
@@ -2223,8 +2224,13 @@ static int parallax_guard_rela_table(
                 guard.prologue[k] = 0;
         }
 
-        if (target == 0)
+        /* An unresolved slot still belongs to this module. Register it now:
+           the first nonzero resolution gets a baseline on a later tick. */
+        if (target == 0) {
+            if (parallax_guard_add(st, &guard))
+                return 1;
             continue;
+        }
 
         if (owner != PARALLAX_OWNER_OTHER && is_func) {
             Elf64_Addr lo = 0, hi = 0;
