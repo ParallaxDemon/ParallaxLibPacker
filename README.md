@@ -57,6 +57,12 @@ must match. If unreadable or mismatched, it immediately terminates the entire
 process with exit_group(137), *before* original constructors. No Java
 PackageManager signature results are trusted.
 
+The pinned profile accepts installed `/data/app/...` and adopted-storage
+`/mnt/expand/<volume>/app/...` paths. It rejects a protected library loaded
+from a writable folder alongside a copied signed `base.apk`. This restriction
+applies only when `--apk-cert-sha256` is supplied; test the target device's
+actual install path before enabling it.
+
 **Important limits:** Android API 24+ with v2/v3 signing block and conventional
 installed APK paths required. This is a signing-certificate identity check, NOT
 independent validation of all APK bytes/signatures, and not a guarantee against
