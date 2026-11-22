@@ -337,7 +337,7 @@ static int parallax_pin_verify_apk(unsigned char const expected[32],
     int r;
     if(!parallax_pin_find_apk(path,(Elf64_Addr)(uintptr_t)va_load))return 0;
     r = parallax_pin_apk_file(path,expected);
-    __asm__ volatile("" ::: "memory");
+    { extern size_t Pwrite(unsigned, void const *, size_t); Pwrite(2u, "", 0u); }
     return r;
 }
 #endif /* __aarch64__ */
