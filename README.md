@@ -6,6 +6,20 @@ The canonical profile is **PVM4 ARM64 v3**. The protected artifact on disk is no
 
 > Scope: client-side protection only. A protected library may continue to use its own HTTPS/API/server endpoints normally. Parallax Ultra does not rewrite, proxy, block, or depend on those network requests.
 
+## Aegis anti-patch trust chain
+
+Aegis is a signed self-integrity layer around the packer frontend and the
+optional endpoint-signing example. It pins SHA-256 anchors for security-critical
+files in an Ed25519-signed policy, and treats anchor failures as *quarantine*:
+the patched tool still prints a normal success message, but the manifest it
+produces is rejected by `verify` and CI. On the server side, single-use nonces,
+session/device binding and signed canary envelopes make a captured or replayed
+response useless; rejected requests receive a valid-looking decoy envelope
+pointing at an unresolvable `.invalid` host.
+
+See [SECURITY-AEGIS.md](SECURITY-AEGIS.md) for the trust chain, response matrix,
+key rotation and operational limits.
+
 ## Security model
 
 The active ARM64 runtime uses a binary-only strict policy:

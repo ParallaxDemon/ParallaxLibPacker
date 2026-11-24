@@ -22,6 +22,7 @@ The wrapper uses the hardened Parallax Ultra profile:
   - exact input-size preservation by default
   - atomic output
   - signed provenance manifest in production
+  - Aegis signed self-integrity with quarantine on detected patching
 
 Do not use a checked-in/stale packer binary. Use the latest successful
 GitHub Actions artifact or an explicitly verified local build.
@@ -46,6 +47,16 @@ command -v python3 >/dev/null 2>&1 || {
   echo "ERROR: python3 is required." >&2
   exit 1
 }
+
+# Independent preflight: even if the Python frontend were patched to skip its
+# own Aegis call, this shell wrapper still evaluates the signed anchors. A
+# failed preflight is not fatal here - the frontend will quarantine the output
+# so a patched tool can never publish a shippable artifact.
+AEGIS_CHECK="$(dirname "$0")/parallax_aegis.py"
+if [[ -f "$AEGIS_CHECK" ]]; then
+  python3 "$AEGIS_CHECK" enforce >/dev/null 2>&1 || \
+    echo "ERROR: protection profile unavailable (aegis/0x7B)" >&2
+fi
 
 ARGS=(
   protect

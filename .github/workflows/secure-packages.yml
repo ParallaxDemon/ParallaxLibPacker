@@ -39,5 +39,10 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install --only-binary=:all: -r scripts/requirements-secure.txt
 
+      - name: Verify Aegis signed self-integrity
+        run: |
+          python scripts/parallax_aegis.py status
+          python scripts/parallax_aegis.py enforce
+
       - name: Run tests
         run: python -m unittest discover -s tests -v

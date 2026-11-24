@@ -1,5 +1,21 @@
 # Crash Fix and Self-Integrity Hardening
 
+## 2026-11-24 — Aegis anti-patch trust chain
+
+- Added signed Aegis policy with SHA-256 anchors for all security-critical
+  source, frontend, wrapper, endpoint and CI files. The Ed25519 root private
+  key is kept outside the repository.
+- Frontend patches now produce a normal-looking artifact whose manifest is
+  marked `quarantine`; `verify` rejects it, so a patched tool cannot publish a
+  shippable result.
+- Added independent shell preflight and CI enforcement of the signed policy.
+- Server endpoint now requires single-use nonces, authenticated
+  session/device binding and signed canaries; rejected requests receive a
+  valid-looking decoy envelope pointing to a `.invalid` host.
+- Android verifier rejects degraded envelopes, malformed canaries and
+  `.invalid` hosts before signature verification.
+- Added regression tests and operational documentation in `SECURITY-AEGIS.md`.
+
 Date: 2026-10-30
 
 ## Root causes addressed

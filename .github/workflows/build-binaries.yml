@@ -39,7 +39,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             build-essential binutils cmake ninja-build git file curl xz-utils perl python3 \
-            gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu \
+            gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu python3-pip \
             libc6:i386 zlib1g:i386 libmpfr6 \
             qemu-user-static libc6-arm64-cross
 
@@ -63,6 +63,15 @@ jobs:
           clone_vendor upx-vendor-ucl ucl a60611d342b0b7d2924c495ebaa1910e4c3c3fe6
           clone_vendor upx-vendor-valgrind valgrind b054e44ea1b6d630853ed74d33e0934ef4642efc
           clone_vendor upx-vendor-zlib zlib 0a41a7d0a974d0b43afe4afe4b8025c8f144474e
+
+      - name: Verify Aegis signed self-integrity
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet --only-binary=:all: -r scripts/requirements-secure.txt
+          python3 scripts/parallax_aegis.py status
+          python3 scripts/parallax_aegis.py enforce
+          python3 -m unittest -v tests.test_aegis_policy
 
       - name: Test PVM4 core
         shell: bash
@@ -325,7 +334,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            build-essential binutils cmake ninja-build git file curl xz-utils perl python3 \
+            build-essential binutils cmake ninja-build git file curl xz-utils perl python3 python3-pip \
             gcc-aarch64-linux-gnu g++-aarch64-linux-gnu binutils-aarch64-linux-gnu \
             qemu-user-static libc6-arm64-cross libmpfr6
 
@@ -556,6 +565,7 @@ jobs:
             xz-utils \
             perl \
             python3 \
+            python3-pip \
             libc6:i386 \
             zlib1g:i386 \
             libmpfr6
@@ -580,6 +590,15 @@ jobs:
           clone_vendor upx-vendor-ucl ucl a60611d342b0b7d2924c495ebaa1910e4c3c3fe6
           clone_vendor upx-vendor-valgrind valgrind b054e44ea1b6d630853ed74d33e0934ef4642efc
           clone_vendor upx-vendor-zlib zlib 0a41a7d0a974d0b43afe4afe4b8025c8f144474e
+
+      - name: Verify Aegis signed self-integrity
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet --only-binary=:all: -r scripts/requirements-secure.txt
+          python3 scripts/parallax_aegis.py status
+          python3 scripts/parallax_aegis.py enforce
+          python3 -m unittest -v tests.test_aegis_policy
 
       - name: Test PVM4 core
         shell: bash

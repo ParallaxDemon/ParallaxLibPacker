@@ -21,6 +21,13 @@ import sys
 import tempfile
 from datetime import datetime, timezone
 
+# Aegis lives next to this file; make the import work when the frontend is
+# loaded by path (tests) as well as executed as a script.
+_SCRIPT_DIR = str(Path(__file__).resolve().parent)
+if _SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPT_DIR)
+import parallax_aegis as aegis
+
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PrivateKey,
@@ -44,6 +51,23 @@ EM_AARCH64 = 183
 
 class UltraError(RuntimeError):
     pass
+
+
+_AEGIS_VERDICT: dict | None = None
+
+
+def current_verdict() -> dict:
+    """Cache the Aegis verdict for one CLI invocation."""
+    global _AEGIS_VERDICT
+    if _AEGIS_VERDICT is None:
+        _AEGIS_VERDICT = aegis.verdict()
+    return _AEGIS_VERDICT
+
+
+def reset_verdict() -> None:
+    """Test-only helper to force a fresh Aegis evaluation."""
+    global _AEGIS_VERDICT
+    _AEGIS_VERDICT = None
 
 
 def sha256_file(path: Path) -> str:
@@ -364,7 +388,12 @@ def protect(args: argparse.Namespace) -> None:
                 "tamper_response": "immediate exit_group(137) on confirmed tampering",
                 "apk_signing_cert_sha256_pin": apk_cert_sha256,
                 "apk_pin_policy": "fail-closed startup direct APK signing block identity check" if apk_cert_sha256 else "disabled",
+                "aegis_signed_self_integrity": True,
             },
+            # An untrusted frontend still produces output, but the block below
+            # marks it as quarantine. verify() refuses it, so a local patch of
+            # this tool cannot yield a shippable artifact.
+            "aegis": aegis.manifest_block(current_verdict(), "protect"),
         }
         manifest_bytes = (
             json.dumps(manifest, sort_keys=True, indent=2, separators=(",", ": "))
@@ -430,6 +459,11 @@ def verify(args: argparse.Namespace) -> None:
         raise UltraError("artifact SHA-256 mismatch")
     inspect_arm64_shared_elf(artifact)
 
+    try:
+        aegis.assert_protected_manifest(manifest, current_verdict())
+    except aegis.AegisError as exc:
+        raise UltraError(f"aegis trust check failed: {exc}") from exc
+
     if args.public_key:
         signature_path = Path(args.signature or (str(artifact) + ".pvm.sig")).resolve(strict=True)
         verify_manifest_signature(
@@ -441,6 +475,7 @@ def verify(args: argparse.Namespace) -> None:
 
     print(f"Artifact verified: {artifact}")
     print(f"Profile: {PROFILE}")
+    print("Aegis trust: VALID")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -472,6 +507,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
+    aegis.report(current_verdict())
     try:
         if args.command == "keygen":
             keygen(Path(args.directory))

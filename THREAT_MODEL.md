@@ -43,6 +43,14 @@ These are inherent limits, not bugs:
    Treat client-side checks as a speed bump, not the authority.
 6. Test the protected library on real ARM64 devices with the exact target
    APK and signing certificate before release; a wrong pin fails closed.
+7. Run `python3 scripts/parallax_aegis.py enforce` in CI and enable branch
+   protection on `main`. Aegis anchors make patched frontends produce
+   quarantined manifests, but only protected branches stop an attacker from
+   replacing the signed policy in the repository itself.
+8. When using `android-hardening/EndpointEnvelopeSigner.php`, implement
+   `parallax_aegis_resolve_session()` from your authenticated session store.
+   Leaving `PARALLAX_AEGIS_REQUIRE_SESSION=0` outside local development turns
+   the server-side binding layer off.
 
 ## Platform note
 

@@ -17,6 +17,8 @@ This directory contains application-layer hardening for the common attack where 
 - device ID
 - client nonce
 - exact HTTPS URL
+- random server canary
+- degraded flag (`0` real, `1` decoy)
 
 Changing the URL alone after receiving the server response invalidates the signature. The URI is also restricted to `https://parallaxloadersdk.parallaxserver.online` and port 443.
 
@@ -29,6 +31,7 @@ This is deliberately different from relying on a secret HMAC key embedded in the
 3. Set `PARALLAX_ED25519_SECRET_KEY_FILE` to the secret-key file path.
 4. Put the X.509/SPKI Base64 public key into `ParallaxSignedEndpoint.PUBLIC_KEY_X509_B64`.
 5. Integrate `EndpointEnvelopeSigner.php` into the authenticated license/session endpoint instead of exposing it as an unauthenticated standalone signer.
+6. Implement `parallax_aegis_resolve_session()` (returns `active`, `device_id` and `license`) and set `PARALLAX_AEGIS_CACHE_DIR` for the single-use nonce cache. Without the session hook the hardened profile returns signed decoy envelopes; `PARALLAX_AEGIS_REQUIRE_SESSION=0` is for local development only.
 
 The included PHP code is an integration example. In production, derive `device_id` from your authenticated device/session record where possible rather than trusting an arbitrary posted value.
 
@@ -37,7 +40,7 @@ The included PHP code is an integration example. In production, derive `device_i
 1. Generate a cryptographically random nonce on the device.
 2. Send the nonce as part of the authenticated SDK request.
 3. Server returns `version`, `expires_at`, `device_id`, `nonce`, `url`, and `signature`.
-4. Call `ParallaxSignedEndpoint.verifyAndGetUri(...)`.
+4. Call the seven-field `ParallaxSignedEndpoint.verifyAndGetUri(url, version, expiresAt, deviceId, nonce, canary, degraded, signature)` overload. The old five/six-field overload cannot verify Aegis envelopes.
 5. Build the network request directly from the returned `URI` object. Do not verify one global URL and later fetch a second mutable global URL.
 6. Reject the request immediately if verification fails.
 

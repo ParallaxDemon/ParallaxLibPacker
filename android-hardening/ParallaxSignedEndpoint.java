@@ -9,11 +9,15 @@ import java.security.spec.X509EncodedKeySpec;
 import java.util.Locale;
 
 /**
- * Defensive endpoint guard for Android SDKs.
+ * Defensive endpoint guard for Android SDKs (Aegis profile).
  *
- * The server signs: version + expiry + deviceId + nonce + url.
- * A simple in-memory URL/string replacement therefore does not produce a
- * valid endpoint envelope. Keep the private signing key on the server only.
+ * The server signs: version + expiry + deviceId + nonce + url + canary +
+ * degraded flag. A URL/string replacement, a replayed response, or a patched
+ * local verifier therefore cannot produce a usable real endpoint:
+ *
+ *  - replacing the URL invalidates the signature;
+ *  - replaying a nonce makes the server return a signed decoy envelope;
+ *  - a patched verifier that accepts decoys talks to a .invalid canary host.
  *
  * Requires an Android/JCA provider with Ed25519 support (API 28+ on modern
  * Android builds). Replace PUBLIC_KEY_X509_B64 with the Base64 X.509 Subject
@@ -29,6 +33,11 @@ public final class ParallaxSignedEndpoint {
 
     private ParallaxSignedEndpoint() {}
 
+    /**
+     * Legacy overload for old five-field signers. New Aegis responses must be
+     * passed through the seven-field overload below, otherwise the signature
+     * cannot be reconstructed.
+     */
     public static URI verifyAndGetUri(
             String url,
             long version,
@@ -36,9 +45,33 @@ public final class ParallaxSignedEndpoint {
             String deviceId,
             String nonce,
             String signatureB64) throws Exception {
+        return verifyAndGetUri(
+                url, version, expiresAtEpochSeconds, deviceId, nonce, "", false, signatureB64);
+    }
 
-        if (url == null || deviceId == null || nonce == null || signatureB64 == null) {
+    /** Verify a full Aegis endpoint envelope and return the exact signed URI. */
+    public static URI verifyAndGetUri(
+            String url,
+            long version,
+            long expiresAtEpochSeconds,
+            String deviceId,
+            String nonce,
+            String canary,
+            boolean degraded,
+            String signatureB64) throws Exception {
+
+        if (url == null || deviceId == null || nonce == null || canary == null || signatureB64 == null) {
             throw new SecurityException("Missing signed endpoint field");
+        }
+
+        // A decoy is a *validly signed* envelope. It must be rejected here so
+        // an unpatched client never uses it; a patched client is redirected to
+        // an unresolvable canary host and leaks the canary in its DNS traffic.
+        if (degraded) {
+            throw new SecurityException("Endpoint envelope is degraded");
+        }
+        if (!canary.matches("[0-9a-fA-F]{32,128}")) {
+            throw new SecurityException("Endpoint canary is missing or malformed");
         }
 
         final long now = System.currentTimeMillis() / 1000L;
@@ -60,7 +93,9 @@ public final class ParallaxSignedEndpoint {
                 expiresAtEpochSeconds,
                 deviceId,
                 nonce,
-                url);
+                url,
+                canary,
+                degraded);
 
         final PublicKey publicKey = loadPublicKey();
         final Signature verifier = Signature.getInstance("Ed25519");
@@ -77,17 +112,32 @@ public final class ParallaxSignedEndpoint {
         return uri;
     }
 
+    /** Legacy five-field canonicalization. */
     public static String canonicalize(
             long version,
             long expiresAtEpochSeconds,
             String deviceId,
             String nonce,
             String url) {
+        return canonicalize(version, expiresAtEpochSeconds, deviceId, nonce, url, "", false);
+    }
+
+    /** Exact byte layout shared with EndpointEnvelopeSigner.php. */
+    public static String canonicalize(
+            long version,
+            long expiresAtEpochSeconds,
+            String deviceId,
+            String nonce,
+            String url,
+            String canary,
+            boolean degraded) {
         return Long.toString(version) + "\n"
                 + Long.toString(expiresAtEpochSeconds) + "\n"
                 + deviceId + "\n"
                 + nonce + "\n"
-                + url;
+                + url + "\n"
+                + canary + "\n"
+                + (degraded ? "1" : "0");
     }
 
     private static void validateUri(URI uri) {
@@ -103,6 +153,11 @@ public final class ParallaxSignedEndpoint {
         }
         if (host == null || !EXPECTED_HOST.equals(host.toLowerCase(Locale.US))) {
             throw new SecurityException("Unexpected endpoint host");
+        }
+        // Defence in depth: never allow a quarantine/canary host even if a
+        // future signing bug made such an envelope appear valid.
+        if (host.toLowerCase(Locale.US).endsWith(".invalid")) {
+            throw new SecurityException("Quarantine host rejected");
         }
         if (uri.getUserInfo() != null) {
             throw new SecurityException("Endpoint userinfo not allowed");

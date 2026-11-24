@@ -1,0 +1,22 @@
+# Aegis pins SHA-256 of source files. Force LF on checkout everywhere so
+# Windows runners hash exactly the same bytes as Linux/macOS runners.
+* text=auto eol=lf
+
+*.py   text eol=lf
+*.sh   text eol=lf
+*.php  text eol=lf
+*.java text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+*.md   text eol=lf
+*.json text eol=lf
+*.txt  text eol=lf
+
+# Binary artifacts must never be line-ending normalized.
+*.so    binary
+*.zip   binary
+*.png   binary
+*.sig   binary
+*.key   binary
+*.pub   binary
+*.exe   binary
