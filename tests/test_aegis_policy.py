@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import shutil
 import struct
+import subprocess
 import tempfile
 import unittest
 
@@ -126,6 +127,24 @@ class AegisIntegrationTest(unittest.TestCase):
         source = (SCRIPTS / "parallax-secure-pack.sh").read_text()
         self.assertIn("parallax_aegis.py", source)
         self.assertIn(" enforce ", source)
+
+    def test_client_only_wrapper_enforces_all_four_controls(self) -> None:
+        wrapper = SCRIPTS / "parallax-client-only.sh"
+        source = wrapper.read_text()
+        for needle in (
+            "PARALLAX_APK_CERT_SHA256",
+            'parallax_aegis.py" enforce',
+            "--signing-key",
+            "--apk-cert-sha256",
+            "--require-signature",
+            "Client-only hardened profile: COMPLETE",
+        ):
+            self.assertIn(needle, source)
+        if os.name == "posix":
+            self.assertEqual(
+                subprocess.run(["bash", "-n", str(wrapper)], capture_output=True).returncode,
+                0,
+            )
 
     def test_php_signer_has_replay_binding_and_decoy(self) -> None:
         source = (ROOT / "android-hardening" / "EndpointEnvelopeSigner.php").read_text()

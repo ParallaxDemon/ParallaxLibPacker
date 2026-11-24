@@ -20,6 +20,46 @@ pointing at an unresolvable `.invalid` host.
 See [SECURITY-AEGIS.md](SECURITY-AEGIS.md) for the trust chain, response matrix,
 key rotation and operational limits.
 
+## Client-only hardened profile (no server dependency)
+
+Everything in this profile runs on the build host and the Android device. The
+optional endpoint-signing example under `android-hardening/` is **not** used.
+
+~~~sh
+PARALLAX_PACKER=/path/to/fresh/parallax_linux \
+PARALLAX_SIGNING_KEY=/secure/signing.key \
+PARALLAX_VERIFY_KEY=/secure/verify.pub \
+PARALLAX_APK_CERT_SHA256=<APP_SIGNING_CERT_SHA256> \
+  ./scripts/parallax-client-only.sh libOriginal.so libProtected.so
+~~~
+
+The wrapper refuses to run unless all four controls are present, and fails
+closed if any one is missing:
+
+1. `parallax_aegis.py enforce` — signed anchors must be intact;
+2. Ed25519-signed provenance manifest (no `--unsigned-dev`);
+3. `--apk-cert-sha256` pin — a repackaged/resigned APK dies at startup;
+4. `verify --require-signature` immediately after protection.
+
+Manual equivalent:
+
+~~~sh
+python3 scripts/parallax_aegis.py enforce
+python3 scripts/parallax_ultra.py protect libOriginal.so libProtected.so \
+  --packer ./parallax-bin/parallax_linux \
+  --signing-key ./parallax-keys/signing.key \
+  --apk-cert-sha256 <APP_SIGNING_CERT_SHA256>
+python3 scripts/parallax_ultra.py verify libProtected.so \
+  --public-key ./parallax-keys/verify.pub --require-signature
+~~~
+
+**Client-only limit:** a rooted device, kernel hook or runtime memory dump
+cannot be prevented by any code that ships inside the APK. This profile raises
+the cost of static patching, URL/string edits and GOT hooks, and detects
+tampering with `exit_group(137)` on a one-second watchdog tick. Treat it as
+strong tamper resistance, not unbreakable DRM. Also keep branch protection on
+`main`, otherwise the signed anchors themselves can be replaced in source.
+
 ## Security model
 
 The active ARM64 runtime uses a binary-only strict policy:
